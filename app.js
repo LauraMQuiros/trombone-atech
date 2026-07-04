@@ -510,6 +510,30 @@
   // Load default chart immediately. The default audio is the sibling song.ogg file.
   function init() {
     try {
+      // Connect to hardware python bridge
+      const ws = new WebSocket('ws://localhost:8080');
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.distance !== undefined) {
+            const dist = data.distance;
+            // Map 10mm (highest pitch) to 200mm (lowest pitch)
+            if (dist <= 10) {
+              state.axis01 = 0;
+            } else if (dist >= 200) {
+              state.axis01 = 1;
+            } else {
+              state.axis01 = (dist - 10) / 190;
+            }
+            // Auto-sing if hand is within valid reading range
+            state.buttonDown = (dist <= 250);
+          }
+        } catch (e) {
+          console.error("WS parse error", e);
+        }
+      };
+      ws.onerror = (e) => console.error("WS error", e);
+
       loadChart(DEFAULT_CHART);
       audio.src = "song.ogg";
       audio.addEventListener("ended", () => {
