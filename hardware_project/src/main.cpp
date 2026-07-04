@@ -56,11 +56,13 @@ unsigned long lastSensorPost = 0;
 unsigned long lastToneTime = 0;
 const int TONE_INTERVAL_MS = 300;
 float lastPlayedFreq = 0.0f;
-// Distance thresholds (mm)
-const int16_t NEAR_THRESH  = 300;   // < 300mm  → low pitch
-const int16_t MID_THRESH   = 800;   // 300–800  → mid pitch
-const int16_t FAR_THRESH   = 1500;  // 800–1500 → high pitch
-                                     // > 1500   → very high / alarm
+// Distance thresholds (mm) for a tighter 0–200 mm control range.
+const int16_t MAX_DISTANCE_MM = 200;
+const int16_t CENTER_DISTANCE_MM = 100;
+const int16_t NEAR_THRESH  = 70;    // < 70mm    → low pitch
+const int16_t MID_THRESH   = 100;   // 70–100mm  → mid pitch
+const int16_t FAR_THRESH   = 150;   // 100–150mm → high pitch
+                                     // > 150mm   → very high / alarm
 // LED color when light is ON
 const uint8_t LIGHT_R = 255, LIGHT_G = 200, LIGHT_B = 80; // warm white
 // Color for distance feedback on LEDs
@@ -82,11 +84,11 @@ void setLedForDistance(int16_t dist) {
 }
 // Choose note frequency based on distance
 float distToFreq(int16_t dist) {
-  if (dist < 0 || dist > 32000) dist = 0;
+  if (dist < 0) dist = 0;
   float clamped = (float)dist;
-  if (clamped > 4000.0f) clamped = 4000.0f;
-  // Map 0–4000mm to 0–72 semitones above C2 (65.41 Hz)
-  float semitones = (clamped / 4000.0f) * 72.0f;
+  if (clamped > MAX_DISTANCE_MM) clamped = MAX_DISTANCE_MM;
+  // Map 0–200mm to 0–72 semitones above C2 (65.41 Hz)
+  float semitones = (clamped / (float)MAX_DISTANCE_MM) * 72.0f;
   float freq = 65.41f * powf(2.0f, semitones / 12.0f);
   return freq;
 }

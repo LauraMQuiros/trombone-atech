@@ -15,9 +15,7 @@
     startBtn: document.getElementById("startBtn"),
     pauseBtn: document.getElementById("pauseBtn"),
     restartBtn: document.getElementById("restartBtn"),
-    soundTestBtn: document.getElementById("soundTestBtn"),
     connectAtechBtn: document.getElementById("connectAtechBtn"),
-    soundStatus: document.getElementById("soundStatus"),
     tmbInput: document.getElementById("tmbInput"),
     oggInput: document.getElementById("oggInput"),
     offsetMs: document.getElementById("offsetMs"),
@@ -69,13 +67,11 @@
     noteHits: new Map(),
     pitchTolerance: 28,
     lookAheadSeconds: 6.0,
-    pixelsPerSecond: 270,
+    pixelsPerSecond: 230,
     playheadX: 185,
     audioLatencySec: 0,
     synthCtx: null,
     synthOsc: null,
-    synthOsc2: null,
-    synthFilter: null,
     synthGain: null
   };
 
@@ -180,12 +176,6 @@
     els.status.textContent = text;
   }
 
-  function setSoundStatus(text) {
-    if (els.soundStatus) {
-      els.soundStatus.textContent = text;
-    }
-  }
-
   function updateAtechInfo() {
     const dist = state.lastDistanceMm == null ? "—" : `${state.lastDistanceMm} mm`;
     const active = hasAtechAxisOverride() ? "on" : "off";
@@ -219,15 +209,15 @@
   }
 
   function applyDistanceToAxis(distanceMm) {
-    if (!Number.isFinite(distanceMm)) return;
-    if (distanceMm > 32000) return;
+    if (!Number.isFinite(distanceMm) || distanceMm > 32000) return;
     state.lastDistanceMm = distanceMm;
-    const minDistance = 1;
-    const maxDistance = 250;
-    const centerDistance = 100;
+    const minDistance = 0;
+    const maxDistance = 200;
     const safeDistance = clamp(distanceMm, minDistance, maxDistance);
-    const centered = clamp((safeDistance - centerDistance) / (maxDistance - centerDistance), -1, 1);
-    state.axis01 = clamp(0.5 - centered * 0.5, 0, 1);
+    const noteCount = Math.max(1, state.notes.length);
+    const normalized = clamp((maxDistance - safeDistance) / (maxDistance - minDistance), 0, 1);
+    const noteStep = Math.round(normalized * (noteCount - 1));
+    state.axis01 = noteCount > 1 ? noteStep / (noteCount - 1) : 0.5;
     state.axisFromKeyboard = state.axis01;
     state.atechInputActive = true;
     state.lastDistanceAt = performance.now();
@@ -329,44 +319,41 @@
     const osc2 = ctx.createOscillator();
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+
     osc1.type = "sawtooth";
     osc2.type = "triangle";
     filter.type = "lowpass";
-    filter.frequency.value = 900;
-    filter.Q.value = 0.8;
+    filter.frequency.value = 1200;
+    filter.Q.value = 0.7;
     gain.gain.value = 0.0001;
+
+    lfo.type = "sine";
+    lfo.frequency.value = 4.5;
+    lfoGain.gain.value = 8;
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc1.frequency);
+    lfoGain.connect(osc2.frequency);
+
     osc1.connect(filter);
     osc2.connect(filter);
     filter.connect(gain);
     gain.connect(ctx.destination);
+
     osc1.start();
     osc2.start();
+    lfo.start();
+
     state.synthCtx = ctx;
     state.synthOsc = osc1;
     state.synthOsc2 = osc2;
-    state.synthFilter = filter;
     state.synthGain = gain;
-  }
-
-  async function playSoundTestTone() {
-    if (!state.synthCtx) return;
-    const now = state.synthCtx.currentTime;
-    const testGain = 0.28;
-    state.synthGain.gain.cancelScheduledValues(now);
-    state.synthGain.gain.setValueAtTime(0.0001, now);
-    state.synthGain.gain.linearRampToValueAtTime(testGain, now + 0.05);
-    state.synthOsc.frequency.setValueAtTime(440, now);
-    state.synthOsc2.frequency.setValueAtTime(442, now);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    state.synthGain.gain.linearRampToValueAtTime(0.0001, state.synthCtx.currentTime);
+    state.synthFilter = filter;
   }
 
   function updateSynth() {
-    if (!state.synthCtx || !state.synthOsc || !state.synthOsc2 || !state.synthFilter || !state.synthGain) return;
-    if (state.synthCtx.state === "suspended") {
-      state.synthCtx.resume().catch(() => {});
-      return;
-    }
+    if (!state.synthCtx || !state.synthOsc || !state.synthGain) return;
     const pitchUnits = axisToPitch(state.axis01);
     // TMB pitch units are visually spaced; 13.75 units is one semitone in these charts.
     const semitonesFromA = pitchUnits / 13.75;
@@ -374,18 +361,16 @@
     const now = state.synthCtx.currentTime;
     state.synthOsc.frequency.setTargetAtTime(clamp(freq, 70, 1200), now, 0.02);
     state.synthOsc2.frequency.setTargetAtTime(clamp(freq * 1.005, 70, 1200), now, 0.02);
-    state.synthFilter.frequency.setTargetAtTime(clamp(700 + (pitchUnits / 165) * 600, 300, 1800), now, 0.02);
-    state.synthFilter.Q.setTargetAtTime(0.8, now, 0.01);
-    const isPlaying = isInputActive() && state.running && !audio.paused;
-    const targetGain = isPlaying ? 0.28 : 0.0001;
-    const rampTime = isPlaying ? 0.015 : 0.03;
-    state.synthGain.gain.setTargetAtTime(targetGain, now, rampTime);
+    state.synthFilter.frequency.setTargetAtTime(clamp(900 + (pitchUnits / 165) * 800, 400, 2200), now, 0.02);
+    const targetGain = isInputActive() && state.running && !audio.paused ? 0.08 : 0.0001;
+    state.synthGain.gain.setTargetAtTime(targetGain, now, 0.015);
   }
 
   function currentGameTime() {
     const offsetSec = Number(els.offsetMs.value || 0) / 1000;
-    // Positive offset means notes are judged later relative to audio.
-    return Math.max(0, audio.currentTime + offsetSec + state.audioLatencySec);
+    const audioStartOffsetSec = 7.0;
+    // The chart starts at 0 while the audio track begins at 8 seconds.
+    return Math.max(0, audio.currentTime + offsetSec + state.audioLatencySec - audioStartOffsetSec);
   }
 
   function pitchAt(note, tSec) {
@@ -651,22 +636,6 @@
     connectAtech();
   });
 
-  els.soundTestBtn.addEventListener("click", async () => {
-    try {
-      ensureSynth();
-      if (state.synthCtx && state.synthCtx.state === "suspended") await state.synthCtx.resume();
-      const now = state.synthCtx.currentTime;
-      state.synthGain.gain.cancelScheduledValues(now);
-      state.synthGain.gain.setValueAtTime(0.0001, now);
-      state.synthOsc.frequency.setTargetAtTime(440, now, 0.01);
-      state.synthGain.gain.setTargetAtTime(0.05, now, 0.01);
-      state.synthGain.gain.setTargetAtTime(0.0001, now + 0.3, 0.05);
-      setStatus("Playing test tone.");
-    } catch (err) {
-      setStatus(`Sound test failed: ${err.message}`);
-    }
-  });
-
   els.tmbInput.addEventListener("change", async (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -688,22 +657,12 @@
   });
 
   els.startBtn.addEventListener("click", startGame);
-  els.soundTestBtn.addEventListener("click", async () => {
-    try {
-      if (!state.synthCtx) ensureSynth();
-      if (state.synthCtx && state.synthCtx.state === "suspended") await state.synthCtx.resume();
-      await playSoundTestTone();
-      setStatus("Sound test played. Use laptop audio output if available.");
-    } catch (err) {
-      setStatus(`Sound test failed: ${err.message}`);
-    }
-  });
   els.pauseBtn.addEventListener("click", () => {
     if (audio.paused) audio.play(); else audio.pause();
   });
   els.restartBtn.addEventListener("click", () => {
     audio.pause();
-    audio.currentTime = 0;
+    audio.currentTime = 7;
     resetScore();
     state.running = false;
     setStatus("Restarted. Press Start when ready.");
@@ -715,8 +674,7 @@
       if (state.synthCtx && state.synthCtx.state === "suspended") await state.synthCtx.resume();
       if (!state.rawChart) loadChart(DEFAULT_CHART);
       if (!audio.src) audio.src = "song.ogg";
-      audio.volume = 0.8;
-      audio.muted = false;
+      audio.currentTime = 7;
       resetScore();
       state.running = true;
       state.lastFrameTime = performance.now();
@@ -733,6 +691,7 @@
     try {
       loadChart(DEFAULT_CHART);
       audio.src = "song.ogg";
+      audio.currentTime = 7;
       audio.addEventListener("ended", () => {
         state.running = false;
         const acc = state.possibleScore > 0 ? (state.hitScore / state.possibleScore) * 100 : 0;
@@ -743,14 +702,6 @@
       setStatus(`Init failed: ${err.message}`);
     }
   }
-
-  audio.addEventListener("play", () => setSoundStatus("Audio: playing"));
-  audio.addEventListener("pause", () => setSoundStatus("Audio: paused"));
-  audio.addEventListener("canplay", () => setSoundStatus("Audio: ready"));
-  audio.addEventListener("error", () => {
-    const err = audio.error;
-    setSoundStatus(`Audio error: ${err ? err.code : "unknown"}`);
-  });
 
   init();
 })();
