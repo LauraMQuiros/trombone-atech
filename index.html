@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tiny Toot Karaoke Prototype</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Tiny Toot Karaoke Prototype</h1>
+        <p id="songTitle">Loading…</p>
+        <p id="meta"></p>
+      </div>
+      <div class="stats">
+        <div><span>Score</span><strong id="score">0</strong></div>
+        <div><span>Combo</span><strong id="combo">0x</strong></div>
+        <div><span>Accuracy</span><strong id="acc">100.0%</strong></div>
+        <div><span>Grade</span><strong id="grade">S</strong></div>
+      </div>
+    </header>
+
+    <canvas id="game" width="1280" height="620"></canvas>
+
+    <section class="panel">
+      <div class="buttons">
+        <button id="startBtn">Start / Restart</button>
+        <button id="pauseBtn">Pause / Resume</button>
+        <button id="restartBtn">Stop + Reset</button>
+      </div>
+      <p id="status">Loading chart…</p>
+      <audio id="songAudio" preload="auto"></audio>
+    </section>
+
+    <section class="panel grid">
+      <div>
+        <h2>Controls</h2>
+        <p id="controls">
+          Axis: mouse/touch vertical position, W/S or ↑/↓, or gamepad left-stick Y.<br>
+          Button: hold mouse/touch, Space, or any gamepad button.
+        </p>
+      </div>
+      <div>
+        <h2>Sync</h2>
+        <label>
+          Judgement offset
+          <input id="offsetMs" type="range" min="-500" max="500" value="0" step="5" />
+          <span id="offsetValue">0 ms</span>
+        </label>
+        <p class="hint">Move this if the notes feel early or late on your machine.</p>
+      </div>
+      <div>
+        <h2>Load other files</h2>
+        <label>.tmb chart <input id="tmbInput" type="file" accept=".tmb,application/json" /></label>
+        <label>.ogg audio <input id="oggInput" type="file" accept="audio/ogg,.ogg" /></label>
+        <label class="check"><input id="debug" type="checkbox" /> Show debug overlay</label>
+      </div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
