@@ -15,9 +15,11 @@
     startBtn: document.getElementById("startBtn"),
     pauseBtn: document.getElementById("pauseBtn"),
     restartBtn: document.getElementById("restartBtn"),
+    connectAtechBtn: document.getElementById("connectAtechBtn"),
     tmbInput: document.getElementById("tmbInput"),
     oggInput: document.getElementById("oggInput"),
     offsetMs: document.getElementById("offsetMs"),
+    atechInfo: document.getElementById("atechInfo"),
     offsetValue: document.getElementById("offsetValue"),
     calibration: document.getElementById("calibration"),
     songTitle: document.getElementById("songTitle"),
@@ -45,6 +47,14 @@
     keyboardButtonDown: false,
     gamepadButtonDown: false,
     gamepadConnected: false,
+    atechConnected: false,
+    atechPort: null,
+    atechWriter: null,
+    atechReader: null,
+    atechSerialBuffer: "",
+    atechInputActive: false,
+    lastDistanceMm: null,
+    lastDistanceAt: 0,
     score: 0,
     possibleScore: 0,
     hitScore: 0,
@@ -164,6 +174,134 @@
 
   function setStatus(text) {
     els.status.textContent = text;
+  }
+
+  function updateAtechInfo() {
+    const dist = state.lastDistanceMm == null ? "—" : `${state.lastDistanceMm} mm`;
+    const active = hasAtechAxisOverride() ? "on" : "off";
+    els.atechInfo.textContent = `Atech distance: ${dist} | override: ${active}`;
+  }
+
+  function setAtechConnectionState(connected) {
+    state.atechConnected = connected;
+    els.connectAtechBtn.classList.toggle("connected", connected);
+    els.connectAtechBtn.textContent = connected ? "Atech Connected" : "Connect Atech";
+    if (connected) {
+      setStatus("Atech connected. Move your hand over the distance sensor to move the dot.");
+    }
+  }
+
+  function hasAtechAxisOverride() {
+    return state.atechConnected && state.atechInputActive && state.lastDistanceAt > 0 && performance.now() - state.lastDistanceAt < 2500;
+  }
+
+  function updateAtechInputTimeout() {
+    if (!state.atechConnected || !state.atechInputActive) return;
+    if (state.lastDistanceAt > 0 && performance.now() - state.lastDistanceAt >= 2500) {
+      state.atechInputActive = false;
+      updateAtechInfo();
+      console.log("Atech override expired; reverting to pointer/input control.");
+    }
+  }
+
+  function applyDistanceToAxis(distanceMm) {
+    if (!Number.isFinite(distanceMm)) return;
+    if (distanceMm > 32000) return;
+    state.lastDistanceMm = distanceMm;
+    const minDistance = 80;
+    const maxDistance = 2200;
+    const safeDistance = clamp(distanceMm, minDistance, maxDistance);
+    state.axis01 = clamp(1 - ((safeDistance - minDistance) / (maxDistance - minDistance)), 0, 1);
+    state.axisFromKeyboard = state.axis01;
+    state.atechInputActive = true;
+    state.lastDistanceAt = performance.now();
+    updateAtechInfo();
+    console.log(`Atech distance=${distanceMm} mm axis=${state.axis01.toFixed(3)} override=${hasAtechAxisOverride()}`);
+  }
+
+  function handleSerialLine(line) {
+    if (!line || !line.trim()) return;
+    if (line.startsWith("[")) return;
+    try {
+      console.log("Atech raw line:", line);
+      const msg = JSON.parse(line);
+      const payload = msg && msg.payload ? msg.payload : {};
+      if (msg.type === "event" && payload.event_type === "sensor" && payload.key === "min_distance") {
+        const value = Number(payload.value);
+        console.log("Atech parsed distance:", value);
+        if (Number.isFinite(value)) {
+          applyDistanceToAxis(value);
+        }
+      }
+    } catch (err) {
+      console.warn("Atech serial parse failed:", err, line);
+    }
+  }
+
+  async function connectAtech() {
+    if (!navigator.serial) {
+      setStatus("Web Serial is not available in this browser. Try Chrome or Edge.");
+      return;
+    }
+
+    if (state.atechConnected && state.atechPort) {
+      try {
+        if (state.atechReader) await state.atechReader.cancel();
+        if (state.atechWriter) await state.atechWriter.releaseLock();
+        if (state.atechPort) await state.atechPort.close();
+      } catch (err) {
+        // Ignore cleanup errors.
+      }
+      state.atechReader = null;
+      state.atechWriter = null;
+      state.atechPort = null;
+      setAtechConnectionState(false);
+      setStatus("Atech disconnected.");
+      return;
+    }
+
+    try {
+      const port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 115200 });
+      state.atechPort = port;
+      state.atechReader = port.readable.getReader();
+      state.atechWriter = port.writable.getWriter();
+      setAtechConnectionState(true);
+
+      const decoder = new TextDecoder();
+      (async () => {
+        try {
+          while (true) {
+            const { value, done } = await state.atechReader.read();
+            if (done) break;
+            const text = decoder.decode(value);
+            state.atechSerialBuffer += text;
+            const lines = state.atechSerialBuffer.split(/\r?\n/);
+            state.atechSerialBuffer = lines.pop();
+            for (const rawLine of lines) {
+              handleSerialLine(rawLine);
+            }
+          }
+          if (state.atechSerialBuffer.trim().length > 0) {
+            handleSerialLine(state.atechSerialBuffer);
+            state.atechSerialBuffer = "";
+          }
+        } catch (err) {
+          // Connection dropped.
+        } finally {
+          if (state.atechPort) {
+            try { await state.atechPort.close(); } catch (e) {}
+          }
+          state.atechReader = null;
+          state.atechWriter = null;
+          state.atechPort = null;
+          setAtechConnectionState(false);
+          setStatus("Atech disconnected.");
+        }
+      })();
+    } catch (err) {
+      setStatus(`Could not open the Atech serial port. Close any serial monitor/Arduino app using the port, make sure the board is connected, and try again in Chrome or Edge. ${err.message}`);
+    }
   }
 
   function ensureSynth() {
@@ -389,6 +527,8 @@
     const dt = Math.min(0.05, (now - state.lastFrameTime) / 1000);
     state.lastFrameTime = now;
 
+    updateAtechInputTimeout();
+    updateAtechInfo();
     pollGamepad();
     if (state.running) judge(dt);
     updateSynth();
@@ -403,12 +543,14 @@
   }
 
   function setAxisFromClientY(clientY) {
+    if (hasAtechAxisOverride()) return;
     const r = canvas.getBoundingClientRect();
     state.axis01 = clamp((clientY - r.top) / r.height, 0, 1);
     state.axisFromKeyboard = state.axis01;
   }
 
   function pollGamepad() {
+    if (hasAtechAxisOverride()) return;
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const pad = Array.from(pads).find(Boolean);
     state.gamepadConnected = !!pad;
@@ -429,11 +571,13 @@
   window.addEventListener("keydown", (e) => {
     if (e.code === "Space") { keys.Space = true; state.keyboardButtonDown = true; state.buttonDown = true; e.preventDefault(); }
     if (e.code === "ArrowUp" || e.code === "KeyW") {
+      if (hasAtechAxisOverride()) return;
       state.axisFromKeyboard = clamp(state.axisFromKeyboard - 0.035, 0, 1);
       state.axis01 = state.axisFromKeyboard;
       e.preventDefault();
     }
     if (e.code === "ArrowDown" || e.code === "KeyS") {
+      if (hasAtechAxisOverride()) return;
       state.axisFromKeyboard = clamp(state.axisFromKeyboard + 0.035, 0, 1);
       state.axis01 = state.axisFromKeyboard;
       e.preventDefault();
@@ -456,6 +600,10 @@
 
   els.offsetMs.addEventListener("input", () => {
     els.offsetValue.textContent = `${els.offsetMs.value} ms`;
+  });
+
+  els.connectAtechBtn.addEventListener("click", () => {
+    connectAtech();
   });
 
   els.tmbInput.addEventListener("change", async (e) => {
