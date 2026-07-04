@@ -15,7 +15,9 @@
     startBtn: document.getElementById("startBtn"),
     pauseBtn: document.getElementById("pauseBtn"),
     restartBtn: document.getElementById("restartBtn"),
+    soundTestBtn: document.getElementById("soundTestBtn"),
     connectAtechBtn: document.getElementById("connectAtechBtn"),
+    soundStatus: document.getElementById("soundStatus"),
     tmbInput: document.getElementById("tmbInput"),
     oggInput: document.getElementById("oggInput"),
     offsetMs: document.getElementById("offsetMs"),
@@ -67,11 +69,13 @@
     noteHits: new Map(),
     pitchTolerance: 28,
     lookAheadSeconds: 6.0,
-    pixelsPerSecond: 230,
+    pixelsPerSecond: 270,
     playheadX: 185,
     audioLatencySec: 0,
     synthCtx: null,
     synthOsc: null,
+    synthOsc2: null,
+    synthFilter: null,
     synthGain: null
   };
 
@@ -176,6 +180,12 @@
     els.status.textContent = text;
   }
 
+  function setSoundStatus(text) {
+    if (els.soundStatus) {
+      els.soundStatus.textContent = text;
+    }
+  }
+
   function updateAtechInfo() {
     const dist = state.lastDistanceMm == null ? "—" : `${state.lastDistanceMm} mm`;
     const active = hasAtechAxisOverride() ? "on" : "off";
@@ -195,6 +205,10 @@
     return state.atechConnected && state.atechInputActive && state.lastDistanceAt > 0 && performance.now() - state.lastDistanceAt < 2500;
   }
 
+  function isInputActive() {
+    return state.buttonDown || hasAtechAxisOverride();
+  }
+
   function updateAtechInputTimeout() {
     if (!state.atechConnected || !state.atechInputActive) return;
     if (state.lastDistanceAt > 0 && performance.now() - state.lastDistanceAt >= 2500) {
@@ -208,10 +222,12 @@
     if (!Number.isFinite(distanceMm)) return;
     if (distanceMm > 32000) return;
     state.lastDistanceMm = distanceMm;
-    const minDistance = 80;
-    const maxDistance = 2200;
+    const minDistance = 1;
+    const maxDistance = 250;
+    const centerDistance = 100;
     const safeDistance = clamp(distanceMm, minDistance, maxDistance);
-    state.axis01 = clamp(1 - ((safeDistance - minDistance) / (maxDistance - minDistance)), 0, 1);
+    const centered = clamp((safeDistance - centerDistance) / (maxDistance - centerDistance), -1, 1);
+    state.axis01 = clamp(0.5 - centered * 0.5, 0, 1);
     state.axisFromKeyboard = state.axis01;
     state.atechInputActive = true;
     state.lastDistanceAt = performance.now();
@@ -309,32 +325,61 @@
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
-    osc.type = "sawtooth";
+    osc1.type = "sawtooth";
+    osc2.type = "triangle";
     filter.type = "lowpass";
     filter.frequency.value = 900;
+    filter.Q.value = 0.8;
     gain.gain.value = 0.0001;
-    osc.connect(filter);
+    osc1.connect(filter);
+    osc2.connect(filter);
     filter.connect(gain);
     gain.connect(ctx.destination);
-    osc.start();
+    osc1.start();
+    osc2.start();
     state.synthCtx = ctx;
-    state.synthOsc = osc;
+    state.synthOsc = osc1;
+    state.synthOsc2 = osc2;
+    state.synthFilter = filter;
     state.synthGain = gain;
   }
 
+  async function playSoundTestTone() {
+    if (!state.synthCtx) return;
+    const now = state.synthCtx.currentTime;
+    const testGain = 0.28;
+    state.synthGain.gain.cancelScheduledValues(now);
+    state.synthGain.gain.setValueAtTime(0.0001, now);
+    state.synthGain.gain.linearRampToValueAtTime(testGain, now + 0.05);
+    state.synthOsc.frequency.setValueAtTime(440, now);
+    state.synthOsc2.frequency.setValueAtTime(442, now);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    state.synthGain.gain.linearRampToValueAtTime(0.0001, state.synthCtx.currentTime);
+  }
+
   function updateSynth() {
-    if (!state.synthCtx || !state.synthOsc || !state.synthGain) return;
+    if (!state.synthCtx || !state.synthOsc || !state.synthOsc2 || !state.synthFilter || !state.synthGain) return;
+    if (state.synthCtx.state === "suspended") {
+      state.synthCtx.resume().catch(() => {});
+      return;
+    }
     const pitchUnits = axisToPitch(state.axis01);
     // TMB pitch units are visually spaced; 13.75 units is one semitone in these charts.
     const semitonesFromA = pitchUnits / 13.75;
     const freq = 220 * Math.pow(2, semitonesFromA / 12);
     const now = state.synthCtx.currentTime;
     state.synthOsc.frequency.setTargetAtTime(clamp(freq, 70, 1200), now, 0.02);
-    const targetGain = state.buttonDown && state.running && !audio.paused ? 0.035 : 0.0001;
-    state.synthGain.gain.setTargetAtTime(targetGain, now, 0.015);
+    state.synthOsc2.frequency.setTargetAtTime(clamp(freq * 1.005, 70, 1200), now, 0.02);
+    state.synthFilter.frequency.setTargetAtTime(clamp(700 + (pitchUnits / 165) * 600, 300, 1800), now, 0.02);
+    state.synthFilter.Q.setTargetAtTime(0.8, now, 0.01);
+    const isPlaying = isInputActive() && state.running && !audio.paused;
+    const targetGain = isPlaying ? 0.28 : 0.0001;
+    const rampTime = isPlaying ? 0.015 : 0.03;
+    state.synthGain.gain.setTargetAtTime(targetGain, now, rampTime);
   }
 
   function currentGameTime() {
@@ -376,7 +421,7 @@
     state.possibleScore += possible;
     state.judgedSamples++;
 
-    if (!state.buttonDown) {
+    if (!isInputActive()) {
       state.combo = 0;
       updateScoreUI();
       return;
@@ -606,6 +651,22 @@
     connectAtech();
   });
 
+  els.soundTestBtn.addEventListener("click", async () => {
+    try {
+      ensureSynth();
+      if (state.synthCtx && state.synthCtx.state === "suspended") await state.synthCtx.resume();
+      const now = state.synthCtx.currentTime;
+      state.synthGain.gain.cancelScheduledValues(now);
+      state.synthGain.gain.setValueAtTime(0.0001, now);
+      state.synthOsc.frequency.setTargetAtTime(440, now, 0.01);
+      state.synthGain.gain.setTargetAtTime(0.05, now, 0.01);
+      state.synthGain.gain.setTargetAtTime(0.0001, now + 0.3, 0.05);
+      setStatus("Playing test tone.");
+    } catch (err) {
+      setStatus(`Sound test failed: ${err.message}`);
+    }
+  });
+
   els.tmbInput.addEventListener("change", async (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -627,6 +688,16 @@
   });
 
   els.startBtn.addEventListener("click", startGame);
+  els.soundTestBtn.addEventListener("click", async () => {
+    try {
+      if (!state.synthCtx) ensureSynth();
+      if (state.synthCtx && state.synthCtx.state === "suspended") await state.synthCtx.resume();
+      await playSoundTestTone();
+      setStatus("Sound test played. Use laptop audio output if available.");
+    } catch (err) {
+      setStatus(`Sound test failed: ${err.message}`);
+    }
+  });
   els.pauseBtn.addEventListener("click", () => {
     if (audio.paused) audio.play(); else audio.pause();
   });
@@ -644,6 +715,8 @@
       if (state.synthCtx && state.synthCtx.state === "suspended") await state.synthCtx.resume();
       if (!state.rawChart) loadChart(DEFAULT_CHART);
       if (!audio.src) audio.src = "song.ogg";
+      audio.volume = 0.8;
+      audio.muted = false;
       resetScore();
       state.running = true;
       state.lastFrameTime = performance.now();
@@ -670,6 +743,14 @@
       setStatus(`Init failed: ${err.message}`);
     }
   }
+
+  audio.addEventListener("play", () => setSoundStatus("Audio: playing"));
+  audio.addEventListener("pause", () => setSoundStatus("Audio: paused"));
+  audio.addEventListener("canplay", () => setSoundStatus("Audio: ready"));
+  audio.addEventListener("error", () => {
+    const err = audio.error;
+    setSoundStatus(`Audio error: ${err ? err.code : "unknown"}`);
+  });
 
   init();
 })();
