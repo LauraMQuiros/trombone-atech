@@ -10,6 +10,7 @@
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   const audio = document.getElementById("songAudio");
+  const DEFAULT_SYNC_OFFSET_SEC = 7.5;
 
   const els = {
     startBtn: document.getElementById("startBtn"),
@@ -366,11 +367,13 @@
     state.synthGain.gain.setTargetAtTime(targetGain, now, 0.015);
   }
 
+  function getSyncOffsetSec() {
+    return Number(els.offsetMs.value || DEFAULT_SYNC_OFFSET_SEC);
+  }
+
   function currentGameTime() {
-    const offsetSec = Number(els.offsetMs.value || 0) / 1000;
-    const audioStartOffsetSec = 7.0;
-    // The chart starts at 0 while the audio track begins at 8 seconds.
-    return Math.max(0, audio.currentTime + offsetSec + state.audioLatencySec - audioStartOffsetSec);
+    const syncOffsetSec = getSyncOffsetSec();
+    return Math.max(0, audio.currentTime + state.audioLatencySec - syncOffsetSec);
   }
 
   function pitchAt(note, tSec) {
@@ -629,7 +632,8 @@
   canvas.addEventListener("pointercancel", () => { state.mouseButtonDown = false; state.buttonDown = state.keyboardButtonDown || state.gamepadButtonDown; });
 
   els.offsetMs.addEventListener("input", () => {
-    els.offsetValue.textContent = `${els.offsetMs.value} ms`;
+    const value = Number(els.offsetMs.value);
+    els.offsetValue.textContent = `${value.toFixed(1)} s`;
   });
 
   els.connectAtechBtn.addEventListener("click", () => {
@@ -662,7 +666,7 @@
   });
   els.restartBtn.addEventListener("click", () => {
     audio.pause();
-    audio.currentTime = 7;
+    audio.currentTime = getSyncOffsetSec();
     resetScore();
     state.running = false;
     setStatus("Restarted. Press Start when ready.");
@@ -674,7 +678,7 @@
       if (state.synthCtx && state.synthCtx.state === "suspended") await state.synthCtx.resume();
       if (!state.rawChart) loadChart(DEFAULT_CHART);
       if (!audio.src) audio.src = "song.ogg";
-      audio.currentTime = 7;
+      audio.currentTime = getSyncOffsetSec();
       resetScore();
       state.running = true;
       state.lastFrameTime = performance.now();
@@ -691,7 +695,7 @@
     try {
       loadChart(DEFAULT_CHART);
       audio.src = "song.ogg";
-      audio.currentTime = 7;
+      audio.currentTime = getSyncOffsetSec();
       audio.addEventListener("ended", () => {
         state.running = false;
         const acc = state.possibleScore > 0 ? (state.hitScore / state.possibleScore) * 100 : 0;
@@ -703,5 +707,6 @@
     }
   }
 
+  els.offsetMs.dispatchEvent(new Event("input"));
   init();
 })();

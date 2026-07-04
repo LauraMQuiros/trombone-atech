@@ -3,14 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tiny Toot Karaoke Prototype</title>
+  <title>ATech Trombone Karaoke</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <main>
     <header>
       <div>
-        <h1>Tiny Toot Karaoke Prototype</h1>
+        <h1>ATech Trombone Karaoke</h1>
         <p id="songTitle">Loading…</p>
         <p id="meta"></p>
       </div>
@@ -47,11 +48,11 @@
       <div>
         <h2>Sync</h2>
         <label>
-          Judgement offset
-          <input id="offsetMs" type="range" min="-500" max="500" value="0" step="5" />
-          <span id="offsetValue">0 ms</span>
+          Sync offset
+          <input id="offsetMs" type="range" min="-10" max="10" value="10" step="0.5" />
+          <span id="offsetValue">10.0 s</span>
         </label>
-        <p class="hint">Move this if the notes feel early or late on your machine.</p>
+        <p class="hint">Adjust this to make the song start line up with the notes on your machine.</p>
       </div>
       <div>
         <h2>Load other files</h2>

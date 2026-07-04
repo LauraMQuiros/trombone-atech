@@ -1,6 +1,43 @@
-# Tiny Toot Karaoke Prototype
+# ATech Trombone Karaoke
 
-This is a very small browser prototype that reads a Trombone Champ-style `.tmb` chart and plays an `.ogg` file in sync.
+[![ATech](https://img.shields.io/badge/ATech-Hardware-8A2BE2?logo=arduino&logoColor=white)](https://github.com/LauraMQuiros/trombone-atech)
+[![PlatformIO](https://img.shields.io/badge/PlatformIO-IDE-FF6C00?logo=platformio)](https://platformio.org/)
+[![JavaScript](https://img.shields.io/badge/JavaScript-ES6-F7DF1E?logo=javascript&logoColor=black)](https://developer.mozilla.org/docs/Web/JavaScript)
+[![HTML5](https://img.shields.io/badge/HTML5-Prototype-E34F26?logo=html5&logoColor=white)](https://developer.mozilla.org/docs/Web/HTML)
+
+This is a very small browser prototype that reads a Trombone Champ-style `.tmb` chart and plays an `.ogg` file in sync. The trombone is played using the distance sensor, which controls the pitch and note timing in the experience. The repository also includes a PlatformIO firmware project for the ATech board in the `hardware_project/` folder.
+
+## Demo
+
+Watch the project demo video directly below:
+
+<video controls width="100%" poster="">
+  <source src="ATech%20Trombone%20Karaoke.mp4" type="video/mp4" />
+  Your browser does not support the video tag.
+</video>
+
+## Clone the repository
+
+```bash
+git clone https://github.com/LauraMQuiros/trombone-atech.git
+cd trombone-atech
+```
+
+## Connect the ATech board with PlatformIO
+
+1. Install VS Code and the PlatformIO IDE extension.
+2. Open the repository folder in VS Code.
+3. Open the `hardware_project` folder as the PlatformIO project (or use PlatformIO Home and select `hardware_project`).
+4. Connect the ATech board to your computer with a USB cable.
+5. In the PlatformIO toolbar, choose the correct board/port if prompted, then click Build and Upload.
+
+If you prefer the command line, you can also run the following from the `hardware_project` folder:
+
+```bash
+pio run
+pio run -t upload
+```
+
 
 Included files:
 
