@@ -9,12 +9,9 @@ This is a very small browser prototype that reads a Trombone Champ-style `.tmb` 
 
 ## Demo
 
-Watch the project demo video directly below:
+Watch the project demo below:
 
-<video controls width="100%" poster="">
-  <source src="ATech%20Trombone%20Karaoke.mp4" type="video/mp4" />
-  Your browser does not support the video tag.
-</video>
+![ATech Trombone Karaoke demo](demo.gif)
 
 ## Clone the repository
 

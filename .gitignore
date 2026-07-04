@@ -64,6 +64,7 @@ vcpkg_installed/
 # debug information files
 *.dwo
 .qodo
+.DS_Store
 
 # test output & cache
 Testing/
